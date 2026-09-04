@@ -124,9 +124,33 @@ export default function Page() {
   const gapFans = (100 - score.scoreFans) * 0.4;
   const gapHours = (100 - score.scoreHours) * 0.2;
   const priorityItems = [
-    { name: "평균 동접자 수", gap: gapViewers, next: score.nextViewers, unit: "명" },
-    { name: "애청자 수", gap: gapFans, next: score.nextFans, unit: "명" },
-    { name: "누적 방송시간", gap: gapHours, next: score.nextHours, unit: "시간" },
+    {
+      name: "평균 동접자 수",
+      gap: gapViewers,
+      next: score.nextViewers,
+      unit: "명",
+      weight: 0.4,
+      rawValue: num(viewers),
+      currentScore: score.scoreViewers,
+    },
+    {
+      name: "애청자 수",
+      gap: gapFans,
+      next: score.nextFans,
+      unit: "명",
+      weight: 0.4,
+      rawValue: num(fansScore),
+      currentScore: score.scoreFans,
+    },
+    {
+      name: "누적 방송시간",
+      gap: gapHours,
+      next: score.nextHours,
+      unit: "시간",
+      weight: 0.2,
+      rawValue: num(hoursScore),
+      currentScore: score.scoreHours,
+    },
   ].sort((a, b) => b.gap - a.gap);
 
   let statusLabel, statusClass, statusDesc;
@@ -515,17 +539,22 @@ export default function Page() {
               </>
             ) : priorityItems[0].gap <= 0.01 ? (
               "세 지표 모두 만점(100점) 구간입니다. 가산점(VOD·다시보기)을 채워보세요."
+            ) : priorityItems[0].next ? (
+              <>
+                <b>{priorityItems[0].name}</b> 지표부터 올리는 게 가장 효율적입니다.{" "}
+                <b>
+                  {fmt(Math.max(0, priorityItems[0].next.value - priorityItems[0].rawValue))}
+                  {priorityItems[0].unit}
+                </b>
+                만 더 올리면 다음 기준점({fmt(priorityItems[0].next.value)}
+                {priorityItems[0].unit})을 넘어서 {priorityItems[0].next.score}점이 되고, 가중 점수는 +
+                {((priorityItems[0].next.score - priorityItems[0].currentScore) * priorityItems[0].weight).toFixed(1)}
+                점 오릅니다.
+              </>
             ) : (
               <>
                 <b>{priorityItems[0].name}</b> 지표의 개선 여력이 가장 큽니다(최고 구간까지 올리면 최대 +
                 {priorityItems[0].gap.toFixed(1)}점).
-                {priorityItems[0].next && (
-                  <>
-                    {" "}
-                    다음 기준점은 {fmt(priorityItems[0].next.value)}
-                    {priorityItems[0].unit}({priorityItems[0].next.score}점)입니다.
-                  </>
-                )}
               </>
             )}
           </div>
