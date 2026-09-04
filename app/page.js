@@ -81,6 +81,12 @@ export default function Page() {
       if (data.concurrent && data.concurrent.broadcastDays3mo != null) {
         setDaysRecent(String(data.concurrent.broadcastDays3mo));
       }
+      if (data.vod && data.vod.vodCount != null) {
+        setVodCount(String(data.vod.vodCount));
+      }
+      if (data.vod && data.vod.replayRateEstimate != null) {
+        setReplayRate(String(data.vod.replayRateEstimate));
+      }
     } catch (err) {
       setError("네트워크 오류로 조회하지 못했습니다.");
     } finally {
@@ -212,6 +218,25 @@ export default function Page() {
                       : "-"}
                   </div>
                   <div className="src">추정 · poong.today 기록 기준</div>
+                </div>
+                <div className="fetched-item">
+                  <div className="lbl">업로드 VOD (최근 3개월)</div>
+                  <div className="val">
+                    {lookup.vod && lookup.vod.vodCount != null ? `${fmt(lookup.vod.vodCount)}개` : "조회 실패"}
+                  </div>
+                  <div className="src">확정 · SOOP 공식 (VOD 탭 개수와 동일)</div>
+                </div>
+                <div className="fetched-item">
+                  <div className="lbl">다시보기 유지율(추정)</div>
+                  <div className="val">
+                    {lookup.vod && lookup.vod.replayRateEstimate != null
+                      ? `${fmt(lookup.vod.replayRateEstimate)}%`
+                      : "계산 불가"}
+                  </div>
+                  <div className="src">
+                    추정 · 다시보기 {lookup.vod && lookup.vod.replayCount != null ? fmt(lookup.vod.replayCount) : "-"}개 ÷
+                    방송일수
+                  </div>
                 </div>
               </div>
             </>
@@ -354,16 +379,21 @@ export default function Page() {
       <section id="bonus">
         <div className="sec-head">
           <h2>
-            <span className="num">③</span> 가산점 · 감점 (직접 입력)
+            <span className="num">③</span> 가산점 · 감점
           </h2>
           <p>
-            SOOP 방송국의 VOD 탭은 브라우저 렌더링 후에만 데이터가 나와 자동 조회하지 않습니다. 방송국 &gt;
-            VOD 탭에서 직접 확인해 입력해 주세요.
+            업로드 VOD 개수는 SOOP 공식 VOD API로 자동 조회됩니다(확정). 다시보기 유지율은 다시보기
+            개수를 방송일수로 나눈 추정치가 자동으로 채워지며, 정확한 값은 방송국 &gt; VOD 탭에서
+            직접 확인해 수정할 수 있습니다. 전문 스트리머 여부와 경고 이력은 공개 데이터로 확인할 수
+            없어 직접 입력해야 합니다.
           </p>
         </div>
         <div className="bonus-grid">
           <div className="card bonus-card">
-            <label>최근 3개월 &quot;업로드 VOD&quot; 수 (개)</label>
+            <label>
+              최근 3개월 &quot;업로드 VOD&quot; 수 (개)
+              {lookup?.vod?.vodCount != null && <span className="auto-badge"> · 자동입력(확정)</span>}
+            </label>
             <input type="number" min="0" value={vodCount} onChange={(e) => setVodCount(e.target.value)} />
             <div className="sub">
               SOOP VOD 탭의 &quot;업로드 VOD&quot; 카테고리만 해당(다시보기·클립 제외). 1~3개 1점 · 4~6개
@@ -372,11 +402,15 @@ export default function Page() {
             <div className="result plus">+{score.bVod}점</div>
           </div>
           <div className="card bonus-card">
-            <label>다시보기 유지율 (%)</label>
+            <label>
+              다시보기 유지율 (%)
+              {lookup?.vod?.replayRateEstimate != null && <span className="auto-badge"> · 추정치 자동입력</span>}
+            </label>
             <input type="number" min="0" max="100" value={replayRate} onChange={(e) => setReplayRate(e.target.value)} />
             <div className="sub">
               최근 3개월 방송일 중 &quot;다시보기&quot; 탭에 VOD가 남아있는 날의 비율. 70%↑ 1점 · 80%↑ 3점 ·
-              90%↑ 5점
+              90%↑ 5점. 자동 입력값은 다시보기 개수÷방송일수로 계산한 추정치이므로, 정확한 유지율은
+              직접 확인을 권장합니다.
             </div>
             <div className="result plus">+{score.bReplay}점</div>
           </div>
@@ -537,7 +571,13 @@ export default function Page() {
             <span className="confidence fact">확정</span> 애청자 수·누적 방송시간: SOOP 공식 채널 API(api-channel.sooplive.com)에서 실시간 조회
           </li>
           <li>
+            <span className="confidence fact">확정</span> 최근 3개월 &quot;업로드 VOD&quot; 개수: SOOP 공식 채널 VOD API(api-channel.sooplive.com)에서 실시간 조회 — 방송국 VOD 탭 표시 개수와 동일
+          </li>
+          <li>
             <span className="confidence ref">참고</span> 평균 동접·최근 3개월 방송일수: poong.today의 일별 기록을 바탕으로 이 사이트가 자체 계산한 추정치
+          </li>
+          <li>
+            <span className="confidence ref">참고</span> 다시보기 유지율: SOOP 공식 &quot;다시보기&quot; 개수를 poong.today 추정 방송일수로 나눈 값으로, 실제 SOOP 유지율 산출식(방송일 기준 %)과 다를 수 있습니다.
           </li>
           <li>
             <span className="confidence ref">참고</span> 구간별 점수표·가산점 배점은 SOOP이 게시한 점수표 자료를 근거로 반영했으며, 세부 수치가 개편되었을 수 있습니다.

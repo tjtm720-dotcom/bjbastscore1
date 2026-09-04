@@ -1,20 +1,39 @@
 // API route: GET /api/lookup?id=<soop_bj_id>
 //
-// Pulls two PUBLIC, unauthenticated JSON sources at request time:
-//   1. SOOP's own channel dashboard API   (official numbers: 애청자 수, 누적 방송시간, 방송 시작일)
-//   2. poong.today's per-day stats API    (third-party estimate: daily "concurrent viewer" figure,
-//                                           used here as a stand-in for "평균 동접" — see caveat in the
-//                                           response and in the UI)
+// Pulls PUBLIC, unauthenticated JSON sources at request time:
+//   1. SOOP's own channel dashboard API     (official numbers: 애청자 수, 누적 방송시간, 방송 시작일)
+//   2. SOOP's own channel VOD list API      (official counts: "업로드 VOD" 개수, "다시보기" 개수 — the
+//                                             same endpoint the station page itself calls when you open
+//                                             the VOD tab and filter to "3개월"; found via network
+//                                             inspection, so no headless browser is needed for these)
+//   3. poong.today's per-day stats API      (third-party estimate: daily "concurrent viewer" figure,
+//                                             used as a stand-in for "평균 동접" — see caveat in the
+//                                             response and in the UI)
 //
-// Both are called directly with fetch() from this serverless function — no headless browser needed,
-// so this stays fast and works on Vercel's free tier. VOD / 다시보기 counts are NOT fetched here because
-// SOOP's VOD list only renders after client-side JavaScript runs (confirmed by testing: a plain fetch()
-// of that page returns an empty app shell), which would require a real headless browser to scrape.
-// Those two fields stay manual inputs in the UI.
+// All are called directly with fetch() from this serverless function — no headless browser needed,
+// so this stays fast and works on Vercel's free tier.
+//
+// Note on "다시보기 유지율": SOOP's official metric is "% of the last 3 months' broadcast days that
+// still have a 다시보기 VOD", which isn't something the VOD-list API exposes directly (it only gives a
+// raw count of VOD entries, and one broadcast day can have 0, 1, or multiple VODs). We estimate it as
+// (다시보기 VOD count ÷ 3개월 방송일수), clearly labeled as an estimate — the UI keeps it editable.
 
 const SOOP_DASHBOARD_URL = (id) => `https://api-channel.sooplive.com/v1.1/channel/${encodeURIComponent(id)}/dashboard`;
+const SOOP_VOD_URL = (id, category, startDate, endDate) =>
+  `https://api-channel.sooplive.com/v1.1/channel/${encodeURIComponent(id)}/vod/${category}` +
+  `?startDate=${startDate}&endDate=${endDate}&keyword=&orderBy=reg_date&perPage=60&page=1&field=title,contents,user_nick,user_id`;
 const POONG_TODAY_URL = (id, year, month) =>
   `https://static.poong.today/bj/detail/get?id=${encodeURIComponent(id)}&year=${year}&month=${month}`;
+
+// "최근 3개월" as YYYY-MM-DD strings, matching how the SOOP station page itself filters the VOD tab
+// (오늘 날짜 기준으로 정확히 3개월 전 같은 날짜부터).
+function threeMonthDateRange(from = new Date()) {
+  const end = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+  const start = new Date(end);
+  start.setUTCMonth(start.getUTCMonth() - 3);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  return { startDate: fmt(start), endDate: fmt(end) };
+}
 
 const COMMON_HEADERS = {
   "User-Agent":
@@ -74,6 +93,26 @@ async function getSoopDashboard(id) {
   };
 }
 
+async function getVodCounts(id) {
+  const { startDate, endDate } = threeMonthDateRange();
+  const [reviewRes, normalRes] = await Promise.all([
+    fetchJson(SOOP_VOD_URL(id, "review", startDate, endDate)),
+    fetchJson(SOOP_VOD_URL(id, "normal", startDate, endDate)),
+  ]);
+
+  const replayCount =
+    reviewRes.ok && reviewRes.data && reviewRes.data.meta && Number.isFinite(reviewRes.data.meta.totalItems)
+      ? reviewRes.data.meta.totalItems
+      : null;
+  const vodCount =
+    normalRes.ok && normalRes.data && normalRes.data.meta && Number.isFinite(normalRes.data.meta.totalItems)
+      ? normalRes.data.meta.totalItems
+      : null;
+
+  if (replayCount === null && vodCount === null) return null;
+  return { replayCount, vodCount, startDate, endDate };
+}
+
 async function getPoongTodayAvgConcurrent(id) {
   const months = lastNMonths(3);
   const results = await Promise.all(months.map((m) => fetchJson(POONG_TODAY_URL(id, m.year, m.month))));
@@ -114,7 +153,11 @@ export async function GET(request) {
     return Response.json({ error: "올바른 SOOP 아이디 형식이 아닙니다." }, { status: 400 });
   }
 
-  const [dashboard, poong] = await Promise.all([getSoopDashboard(id), getPoongTodayAvgConcurrent(id)]);
+  const [dashboard, poong, vod] = await Promise.all([
+    getSoopDashboard(id),
+    getPoongTodayAvgConcurrent(id),
+    getVodCounts(id),
+  ]);
 
   if (!dashboard) {
     return Response.json(
@@ -122,6 +165,12 @@ export async function GET(request) {
       { status: 404 }
     );
   }
+
+  const broadcastDays3mo = poong ? poong.broadcastDays : null;
+  const replayRateEstimate =
+    vod && vod.replayCount !== null && broadcastDays3mo
+      ? Math.min(100, Math.round((vod.replayCount / broadcastDays3mo) * 100))
+      : null;
 
   return Response.json({
     found: true,
@@ -142,8 +191,26 @@ export async function GET(request) {
           broadcastDays3mo: null,
           source: "poong.today에서 데이터를 찾지 못했습니다 (등록되지 않은 채널이거나 활동이 적을 수 있음)",
         },
+    vod: vod
+      ? {
+          vodCount: vod.vodCount,
+          vodCountSource: "확정 · SOOP 공식 (방송국 > VOD 탭 > 업로드 VOD, 최근 3개월)",
+          replayCount: vod.replayCount,
+          replayRateEstimate,
+          replayRateSource:
+            replayRateEstimate !== null
+              ? "추정 · SOOP 공식 다시보기 개수 ÷ poong.today 추정 방송일수 — 실제 SOOP 유지율(방송일 기준 %) 산출식과 다를 수 있음"
+              : "다시보기 개수는 확인했지만 방송일수 추정치가 없어 유지율은 계산하지 못했습니다.",
+        }
+      : {
+          vodCount: null,
+          vodCountSource: "SOOP VOD API 조회에 실패했습니다. 직접 확인 후 입력해주세요.",
+          replayCount: null,
+          replayRateEstimate: null,
+          replayRateSource: "SOOP VOD API 조회에 실패했습니다. 직접 확인 후 입력해주세요.",
+        },
     sources: {
-      soop: "https://api-channel.sooplive.com (SOOP 공식, 애청자 수·누적 방송시간)",
+      soop: "https://api-channel.sooplive.com (SOOP 공식, 애청자 수·누적 방송시간·VOD 개수)",
       poongToday: "https://poong.today (제3자, 동시 시청자 추정치)",
     },
     fetchedAt: new Date().toISOString(),
