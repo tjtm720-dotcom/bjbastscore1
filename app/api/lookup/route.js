@@ -108,7 +108,7 @@ export async function GET(request) {
   const id = (searchParams.get("id") || "").trim();
 
   if (!id) {
-    return Response.json({ error: "id 쿼리 파라미터가 필요합니다. 예: /api/lookup?id=ay6935" }, { status: 400 });
+    return Response.json({ error: "id 쿼리 파라미터가 필요합니다. 예: /api/lookup?id=<SOOP 아이디>" }, { status: 400 });
   }
   if (!/^[a-zA-Z0-9_]{2,20}$/.test(id)) {
     return Response.json({ error: "올바른 SOOP 아이디 형식이 아닙니다." }, { status: 400 });

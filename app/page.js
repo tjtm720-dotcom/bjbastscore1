@@ -169,7 +169,7 @@ export default function Page() {
           <form className="search-row" onSubmit={handleLookup}>
             <input
               type="text"
-              placeholder="SOOP 아이디 (예: ay6935)"
+              placeholder="SOOP 아이디를 입력하세요"
               value={id}
               onChange={(e) => setId(e.target.value)}
             />
